@@ -45,8 +45,10 @@ Data countMax(int arr[N][M]) {
     int elementsPerThread = N * M / THREAD_COUNT;
     for (int i = 0; i < 4; i++) {
         dataArr[i].arr = *arr;
-        dataArr->start = elementsPerThread * i;
-        dataArr->end = elementsPerThread * (i + 1);
+        dataArr[i].start = elementsPerThread * i;
+        dataArr[i].end = elementsPerThread * (i + 1);
+        dataArr[i].maxValue = 0;
+        dataArr[i].maxValueCount = 0;
         handles[i] = (HANDLE)_beginthreadex(nullptr, 0, &countMaxLocal, &dataArr[i], 0, nullptr);
     }
     // waiting for threads to complete
@@ -84,16 +86,14 @@ Data countMax(int arr[N][M]) {
 int main()
 {
     // * 16*. Дана прямоугольная целочисленная матрица. Распараллеливание по элементам. Найти количество максимальных элементов.
-    // * P. S. Для задач с четными номерами использовать Interlocked-функции, для задач с нечетными номерами - атомарные типы.
-    // TODO: It requires 3 additional threads to be used. Total 4 threads with main one.
-    // TODO: It requires handling of arrays with size less than number of threads
+    // * P. S. Для задач с четными номерами использовать Interlocked-функции, для задач с нечетными номерами - атомарные типы.\
     
     fillStaticArray(ARR);
 
     printStaticArray(ARR);
 
     Data maxNumber = countMax(ARR);
-    std::cout << "Maximum number times: " << maxNumber.maxValue << ". Times met: " << maxNumber.maxValueCount << std::endl;
+    std::cout << "Maximum number: " << maxNumber.maxValue << ". Times met: " << maxNumber.maxValueCount << std::endl;
 
     system("pause");
     return 0;

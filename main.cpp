@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <process.h>
 #include <fstream>
+#include <chrono>
 
 const int N = 4;
 const int M = 5;
@@ -20,9 +21,11 @@ struct Data {
     int end;
     int maxValue;
     int maxValueCount;
+    unsigned long long elapsedTime;
 };
 
 unsigned __stdcall countMaxLocal(void* data) {
+    auto startPoint = std::chrono::steady_clock::now();
     Data* info = (Data*)data;
     info->maxValueCount = 0;
     for (int i = info->start; i < info->end; i++) {
@@ -34,6 +37,8 @@ unsigned __stdcall countMaxLocal(void* data) {
             info->maxValueCount++;
         }
     }
+    auto endPoint = std::chrono::steady_clock::now();
+    info->elapsedTime = std::chrono::duration_cast<std::chrono::nanoseconds>(endPoint - startPoint).count();
     _endthreadex(0);
     return 0;
 }
@@ -69,6 +74,7 @@ Data countMax(int arr[N][M]) {
 
     for (int i = 0; i < THREAD_COUNT; i++) {
         CloseHandle(handles[i]);
+        std::cout << "Thread " << i << " elapsed time is " << dataArr[i].elapsedTime << "ns\n";
         if (dataArr[i].maxValue > restMaxValue || restMaxValueCount == 0) {
             restMaxValue = dataArr[i].maxValue;
             restMaxValueCount = dataArr[i].maxValueCount;

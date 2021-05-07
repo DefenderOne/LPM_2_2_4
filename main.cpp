@@ -44,6 +44,7 @@ unsigned __stdcall countMaxLocal(void* data) {
 }
 
 Data countMax(int arr[N][M]) {
+    auto startPoint = std::chrono::steady_clock::now();
     Data dataArr[THREAD_COUNT];
     HANDLE handles[THREAD_COUNT];
     // There must be threads created
@@ -58,7 +59,7 @@ Data countMax(int arr[N][M]) {
     }
     // waiting for threads to complete
     WaitForMultipleObjects(THREAD_COUNT, handles, true, INFINITE);
-
+    auto endPoint = std::chrono::steady_clock::now();
     // finding max number count in the rest part of the matrix
     int restMaxValue = 0;
     int restMaxValueCount = 0;
@@ -83,6 +84,7 @@ Data countMax(int arr[N][M]) {
             restMaxValueCount += dataArr[i].maxValueCount;
         }
     }
+    std::cout << "Overall elapsed time is " << std::chrono::duration_cast<std::chrono::microseconds>(endPoint - startPoint).count() << "ms" << std::endl;
     Data result;
     result.maxValue = restMaxValue;
     result.maxValueCount = restMaxValueCount;

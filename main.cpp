@@ -1,6 +1,6 @@
 #include <iostream>
-#include <Windows.h>
-#include <process.h>
+#include <thread>
+#include <windows.h>
 #include <fstream>
 #include <chrono>
 
@@ -9,86 +9,100 @@ const int M = 5;
 int ARR[N][M];
 const int THREAD_COUNT = 4;
 
+struct Max {
+    int value;
+    int count;
+};
+
+volatile Max result;
+
+long long THREAD_TIME[THREAD_COUNT];
+
+volatile long locked = false;
+
 void fillStaticArray(int arr[N][M]);
 
 void printStaticArray(int arr[N][M]);
 
-// Structure to pass arguments into a parallel function and get a result from the function
-struct Data {
-    // * Pointer to a matrix represented as an array
-    int* arr;
-    int start;
-    int end;
-    int maxValue;
-    int maxValueCount;
-    unsigned long long elapsedTime;
-};
+void countMaxLocal(int* arr, int start, int end, long long time) {
+    auto startPoint = std::chrono::system_clock::now();
 
-unsigned __stdcall countMaxLocal(void* data) {
-    auto startPoint = std::chrono::steady_clock::now();
-    Data* info = (Data*)data;
-    info->maxValueCount = 0;
-    for (int i = info->start; i < info->end; i++) {
-        if (info->arr[i] > info->maxValue || info->maxValueCount == 0) {
-            info->maxValue = info->arr[i];
-            info->maxValueCount = 1;
+    Max local;
+    local.value = arr[start];
+    local.count = 1;
+
+    // finding local maximum value
+    for (int i = start; i < end; i++) {
+        if (arr[i] > local.value) {
+            local.value = arr[i];
+            local.count = 1;
         }
-        else if (info->arr[i] == info->maxValue) {
-            info->maxValueCount++;
+        else if (arr[i] == local.value) {
+            local.count++;
         }
     }
-    auto endPoint = std::chrono::steady_clock::now();
-    info->elapsedTime = std::chrono::duration_cast<std::chrono::nanoseconds>(endPoint - startPoint).count();
-    _endthreadex(0);
-    return 0;
+
+    // comparing and assigning
+    while (!_InterlockedExchange(&locked, true)) {
+        if (local.value > result.value) {
+            result.value = local.value;
+            result.count = local.count; 
+        }
+        else if (local.value == result.value) {
+            result.count += local.count;
+        }
+        std::cout << result.value << ":" << result.count << std::endl;
+    }
+    _InterlockedExchange(&locked, false);
+
+    auto endPoint = std::chrono::system_clock::now();
+    time = std::chrono::duration_cast<std::chrono::nanoseconds>(endPoint - startPoint).count();
+    // std::cout << "Thread " << _threadid << " elapsed time is " << std::chrono::duration_cast<std::chrono::nanoseconds>(endPoint - startPoint).count() << "ns\n" << std::endl;
 }
 
-Data countMax(int arr[N][M]) {
-    auto startPoint = std::chrono::steady_clock::now();
-    Data dataArr[THREAD_COUNT];
-    HANDLE handles[THREAD_COUNT];
-    // There must be threads created
-    int elementsPerThread = N * M / THREAD_COUNT;
-    for (int i = 0; i < 4; i++) {
-        dataArr[i].arr = *arr;
-        dataArr[i].start = elementsPerThread * i;
-        dataArr[i].end = elementsPerThread * (i + 1);
-        dataArr[i].maxValue = 0;
-        dataArr[i].maxValueCount = 0;
-        handles[i] = (HANDLE)_beginthreadex(nullptr, 0, &countMaxLocal, &dataArr[i], 0, nullptr);
-    }
-    // waiting for threads to complete
-    WaitForMultipleObjects(THREAD_COUNT, handles, true, INFINITE);
-    auto endPoint = std::chrono::steady_clock::now();
-    // finding max number count in the rest part of the matrix
-    int restMaxValue = 0;
-    int restMaxValueCount = 0;
-    for (int i = THREAD_COUNT * elementsPerThread; i < N * M; i++) {
-        if ((*arr)[i] > restMaxValue || restMaxValueCount == 0) {
-            restMaxValueCount = 1;
-            restMaxValue = (*arr)[i];
-        }
-        else if (restMaxValue == (*arr)[i]) {
-            restMaxValueCount++;
-        }
+void countMax(int* arr) {
+    // creating threads
+    std::thread threads[THREAD_COUNT];
+
+    if (arr != nullptr) {
+        result.value = arr[0];
+        result.count = 1;
     }
 
+    // allocating elements per threads and starting the threads
+    int elementsPerThread = N * M / THREAD_COUNT;
+    auto startPoint = std::chrono::system_clock::now();
     for (int i = 0; i < THREAD_COUNT; i++) {
-        CloseHandle(handles[i]);
-        std::cout << "Thread " << i << " elapsed time is " << dataArr[i].elapsedTime << "ns\n";
-        if (dataArr[i].maxValue > restMaxValue || restMaxValueCount == 0) {
-            restMaxValue = dataArr[i].maxValue;
-            restMaxValueCount = dataArr[i].maxValueCount;
+        threads[i] = std::thread(
+            &countMaxLocal, 
+            arr, 
+            elementsPerThread * i, 
+            (elementsPerThread * (i + 1) > N * M) ? N * M : elementsPerThread * (i + 1),
+            std::ref(THREAD_TIME[i])
+        );
+    }
+
+    // waiting for threads to complete
+    for (int i = 0; i < THREAD_COUNT - 1; i++) {
+        threads[i].join();
+    }
+
+    // handling the rest of the matrix
+    for (int i = THREAD_COUNT * elementsPerThread; i < N * M; i++) {
+        if (arr[i] > result.value) {
+            result.value = arr[i];
+            result.count = 1;
         }
-        else if (dataArr[i].maxValue == restMaxValue) {
-            restMaxValueCount += dataArr[i].maxValueCount;
+        else if (arr[i] == result.value) {
+            result.count++;
         }
     }
-    std::cout << "Overall elapsed time is " << std::chrono::duration_cast<std::chrono::microseconds>(endPoint - startPoint).count() << "ms" << std::endl;
-    Data result;
-    result.maxValue = restMaxValue;
-    result.maxValueCount = restMaxValueCount;
-    return result;
+    auto endPoint = std::chrono::system_clock::now();
+    auto elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(endPoint - startPoint).count();
+    for (int i = 0; i < THREAD_COUNT; i++) {
+        std::cout << "Thread " << i << " elapsed time is " << THREAD_TIME[i] << "ns\n";
+    }
+    std::cout << "Overall elapsed time is " << elapsedTime << "ns\n";
 }
 
 int main()
@@ -100,8 +114,11 @@ int main()
 
     printStaticArray(ARR);
 
-    Data maxNumber = countMax(ARR);
-    std::cout << "Maximum number: " << maxNumber.maxValue << ". Times met: " << maxNumber.maxValueCount << std::endl;
+    std::cout << "Threads available: " << std::thread::hardware_concurrency() << std::endl;
+
+    countMax(*ARR);
+
+    std::cout << "Maximum number: " << result.value << ". Times met: " << result.count << std::endl;
 
     system("pause");
     return 0;
